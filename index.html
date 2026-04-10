@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>平成便 新聞ジェネレーター</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .editor-panel {
+            flex: 1;
+            min-width: 300px;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .preview-panel {
+            flex: 1.5;
+            min-width: 400px;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        h1, h2 {
+            margin-top: 0;
+            font-size: 1.2rem;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+        input[type="file"], textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea {
+            resize: vertical;
+            height: 80px;
+        }
+        button {
+            background-color: #333;
+            color: #fff;
+            border: none;
+            padding: 12px 20px;
+            font-size: 1rem;
+            cursor: pointer;
+            border-radius: 4px;
+            width: 100%;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+        button:hover {
+            background-color: #555;
+        }
+        button:disabled {
+            background-color: #999;
+            cursor: not-allowed;
+        }
+        #downloadBtn {
+            margin-top: 15px;
+            background-color: #28a745;
+            display: none;
+        }
+        #downloadBtn:hover {
+            background-color: #218838;
+        }
+        canvas {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+        }
+        .loading-text {
+            color: #d9534f;
+            font-size: 0.9rem;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="editor-panel">
+        <h1>🗞 平成便 記事入力</h1>
+        <div id="loadingStatus" class="loading-text">テンプレート画像（bin.png）を読み込み中...</div>
+
+        <div class="form-group">
+            <label>(a) 左上の枠：料理の画像</label>
+            <input type="file" id="foodInput" accept="image/*">
+        </div>
+
+        <div class="form-group">
+            <label>(b) 右上の欄：今日の献立</label>
+            <textarea id="menuInput" placeholder="今日の献立はこれです..."></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>(c) 左下の枠：垂れ込み</label>
+            <textarea id="gossipInput" placeholder="ここに垂れ込み情報を入力..."></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>(d) 右下の欄：時事ネタ</label>
+            <textarea id="newsInput" placeholder="ここに時事ネタを入力..."></textarea>
+        </div>
+
+        <button id="generateBtn" disabled>画像を生成・出力する</button>
+    </div>
+
+    <div class="preview-panel">
+        <h2>プレビュー</h2>
+        <canvas id="canvas"></canvas>
+        <button id="downloadBtn">完成した画像をダウンロード</button>
+    </div>
+</div>
+
+<script>
+    const foodInput = document.getElementById('foodInput');
+    const menuInput = document.getElementById('menuInput');
+    const gossipInput = document.getElementById('gossipInput');
+    const newsInput = document.getElementById('newsInput');
+    const generateBtn = document.getElementById('generateBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const loadingStatus = document.getElementById('loadingStatus');
+
+    let templateImg = new Image();
+    let foodImg = null;
+
+    // 1. テンプレート画像（bin.png）の自動読み込み
+    // ※ 同じフォルダに「bin.png」が配置されている前提です
+    templateImg.onload = () => {
+        // 読み込み完了したらボタンを有効化し、プレビューに表示
+        generateBtn.disabled = false;
+        loadingStatus.style.display = 'none';
+        canvas.width = templateImg.width;
+        canvas.height = templateImg.height;
+        ctx.drawImage(templateImg, 0, 0);
+    };
+    templateImg.onerror = () => {
+        loadingStatus.textContent = 'エラー：同じフォルダに「bin.png」が見つかりません。';
+    };
+    templateImg.src = 'bin.png'; // 画像のパス
+
+    // 料理画像が選ばれたら保持
+    foodInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const img = new Image();
+            img.onload = () => { foodImg = img; };
+            img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // テキストを自動改行して描画する関数
+    function wrapText(ctx, text, x, y, maxWidth, maxHeight) {
+        // 画像の全体サイズに対する相対的なフォントサイズ（少し調整）
+        const fontSize = Math.max(Math.floor(canvas.width * 0.025), 14); 
+        const lineHeight = fontSize * 1.6;
+        ctx.font = `bold ${fontSize}px 'Sawarabi Mincho', 'Noto Serif JP', serif`;
+        ctx.fillStyle = "#1a1a1a"; // 真っ黒ではなく少し馴染む墨色
+        ctx.textBaseline = "top";
+
+        // 黒枠の線に文字が被らないようにパディング（余白）を設ける
+        const padding = fontSize * 0.8;
+        const drawX = x + padding;
+        const drawMaxWidth = maxWidth - padding * 2;
+        let currentY = y + padding;
+
+        const lines = text.split('\n');
+        
+        for (let i = 0; i < lines.length; i++) {
+            let line = '';
+            let chars = lines[i].split('');
+            
+            for (let j = 0; j < chars.length; j++) {
+                let testLine = line + chars[j];
+                let metrics = ctx.measureText(testLine);
+                
+                // 横幅を超えたら次の行へ
+                if (metrics.width > drawMaxWidth && j > 0) {
+                    ctx.fillText(line, drawX, currentY);
+                    line = chars[j];
+                    currentY += lineHeight;
+                } else {
+                    line = testLine;
+                }
+            }
+            // 最後の行を描画
+            ctx.fillText(line, drawX, currentY);
+            currentY += lineHeight;
+            
+            // 縦にはみ出しそうになったら終了（枠外には描画しない）
+            if (currentY - y > maxHeight - padding * 1.5) break; 
+        }
+    }
+
+    // 「画像を生成・出力する」ボタンの処理
+    generateBtn.addEventListener('click', () => {
+        // 1. まずテンプレートを再描画（リセット）
+        canvas.width = templateImg.width;
+        canvas.height = templateImg.height;
+        const W = canvas.width;
+        const H = canvas.height;
+        ctx.drawImage(templateImg, 0, 0);
+
+        // --- 画像を分析し、黒枠の内側に収まるように座標を微調整 ---
+        // { x: 左からの開始位置, y: 上からの開始位置, w: 枠の横幅, h: 枠の縦幅 }
+        const boxA = { x: W * 0.052, y: H * 0.179, w: W * 0.423, h: H * 0.338 }; // 左上 (料理)
+        const boxB = { x: W * 0.489, y: H * 0.179, w: W * 0.290, h: H * 0.338 }; // 右上 (献立)
+        const boxC = { x: W * 0.052, y: H * 0.530, w: W * 0.306, h: H * 0.424 }; // 左下 (垂れ込み)
+        const boxD = { x: W * 0.393, y: H * 0.530, w: W * 0.559, h: H * 0.424 }; // 右下 (時事ネタ)
+
+        // 2. (a) 料理の画像を描画
+        if (foodImg) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(boxA.x, boxA.y, boxA.w, boxA.h);
+            ctx.clip(); // 枠の外にはみ出さないようにクリッピング
+
+            // アスペクト比を維持して「Cover（はみ出し切り抜き）」で描画
+            const imgRatio = foodImg.width / foodImg.height;
+            const boxRatio = boxA.w / boxA.h;
+            let drawW, drawH, drawX, drawY;
+
+            if (imgRatio > boxRatio) {
+                drawH = boxA.h;
+                drawW = foodImg.width * (boxA.h / foodImg.height);
+                drawX = boxA.x - (drawW - boxA.w) / 2;
+                drawY = boxA.y;
+            } else {
+                drawW = boxA.w;
+                drawH = foodImg.height * (boxA.w / foodImg.width);
+                drawX = boxA.x;
+                drawY = boxA.y - (drawH - boxA.h) / 2;
+            }
+            ctx.drawImage(foodImg, drawX, drawY, drawW, drawH);
+            ctx.restore();
+        }
+
+        // 3. 各テキストを描画
+        if (menuInput.value)   wrapText(ctx, menuInput.value, boxB.x, boxB.y, boxB.w, boxB.h);
+        if (gossipInput.value) wrapText(ctx, gossipInput.value, boxC.x, boxC.y, boxC.w, boxC.h);
+        if (newsInput.value)   wrapText(ctx, newsInput.value, boxD.x, boxD.y, boxD.w, boxD.h);
+
+        // ダウンロードボタンを表示
+        downloadBtn.style.display = 'block';
+    });
+
+    // ダウンロード機能
+    downloadBtn.addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.download = 'heisan_benben_completed.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    });
+</script>
+
+</body>
+</html>
