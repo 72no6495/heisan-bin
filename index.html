@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>へいさん便 新聞ジェネレーター</title>
+    <title>平成便 新聞ジェネレーター</title>
     <style>
         body {
             font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
@@ -106,7 +106,7 @@
 
 <div class="container">
     <div class="editor-panel">
-        <h1>🗞 へいさん便 記事入力</h1>
+        <h1>🗞 平成便 記事入力</h1>
         <div id="loadingStatus" class="loading-text">テンプレート画像（bin.jpg）を読み込み中...</div>
 
         <div class="form-group">
@@ -153,7 +153,7 @@
     let templateImg = new Image();
     let foodImg = null;
 
-    // 1. テンプレート画像（bin.jpg）の自動読み込み
+    // テンプレート画像（bin.jpg）の自動読み込み
     templateImg.onload = () => {
         generateBtn.disabled = false;
         loadingStatus.style.display = 'none';
@@ -164,7 +164,7 @@
     templateImg.onerror = () => {
         loadingStatus.textContent = 'エラー：同じフォルダに「bin.jpg」が見つかりません。';
     };
-    templateImg.src = 'bin.jpg'; // .pngから.jpgに変更
+    templateImg.src = 'bin.jpg';
 
     // 料理画像が選ばれたら保持
     foodInput.addEventListener('change', (e) => {
@@ -179,19 +179,22 @@
         reader.readAsDataURL(file);
     });
 
-    // テキストを描画する関数（見出し回避のための startYOffset を追加）
-    function wrapText(ctx, text, x, y, maxWidth, maxHeight, startYOffset = 0) {
-        const fontSize = Math.max(Math.floor(canvas.width * 0.038), 18); 
+    // テキストを描画する関数（日付用の特殊処理 mode='date' を追加）
+    function wrapText(ctx, text, x, y, maxWidth, maxHeight, startYOffset = 0, mode = 'normal') {
+        // 日付の場合は文字を小さく（0.022）、通常の場合は大きく（0.038）設定
+        const fontSize = mode === 'date' 
+            ? Math.max(Math.floor(canvas.width * 0.022), 12) 
+            : Math.max(Math.floor(canvas.width * 0.038), 18); 
+        
         const lineHeight = fontSize * 1.4; 
         ctx.font = `bold ${fontSize}px 'Sawarabi Mincho', 'Noto Serif JP', serif`;
         ctx.fillStyle = "#1a1a1a";
         ctx.textBaseline = "top";
 
-        const padding = fontSize * 0.5;
+        // 日付エリアは枠線がないので余白（padding）をゼロにし、通常枠は余白を取る
+        const padding = mode === 'date' ? 0 : fontSize * 0.5;
         const drawX = x + padding;
         const drawMaxWidth = maxWidth - padding * 2;
-        
-        // startYOffset を加えて、見出しの下から文字が始まるようにする
         let currentY = y + startYOffset + padding;
 
         const lines = text.split('\n');
@@ -206,7 +209,6 @@
                 
                 // 横幅を超えたら改行
                 if (metrics.width > drawMaxWidth && j > 0) {
-                    // 縦の限界チェック
                     if (currentY - y + fontSize > maxHeight - padding) return;
                     
                     ctx.fillText(line, drawX, currentY);
@@ -231,18 +233,20 @@
         const H = canvas.height;
         ctx.drawImage(templateImg, 0, 0);
 
-        // 枠の座標（黒枠の内側にぴったり収まる位置）
+        // 各枠の座標
         const boxA = { x: W * 0.052, y: H * 0.179, w: W * 0.423, h: H * 0.338 }; 
         const boxB = { x: W * 0.489, y: H * 0.179, w: W * 0.290, h: H * 0.338 }; 
         const boxC = { x: W * 0.052, y: H * 0.530, w: W * 0.306, h: H * 0.424 }; 
         const boxD = { x: W * 0.393, y: H * 0.530, w: W * 0.559, h: H * 0.424 }; 
 
-        // 見出しを避けるための縦の余白（枠の高さに対する割合で設定）
-        const offsetB = boxB.h * 0.18; // 「献立」見出し用
-        const offsetC = boxC.h * 0.12; // 「献立野郎の一言」見出し用
-        const offsetD = boxD.h * 0.15; // 「垂れ込み」見出し用
+        // ★新規追加：日付を書き込むエリア（右上の顔写真の下あたり）
+        const dateBox = { x: W * 0.800, y: H * 0.215, w: W * 0.160, h: H * 0.100 };
 
-        // 料理の画像を描画
+        const offsetB = boxB.h * 0.18; 
+        const offsetC = boxC.h * 0.12; 
+        const offsetD = boxD.h * 0.15; 
+
+        // 1. 料理の画像を描画
         if (foodImg) {
             ctx.save();
             ctx.beginPath();
@@ -268,10 +272,17 @@
             ctx.restore();
         }
 
-        // 各テキストを描画（第7引数にオフセットを渡す）
+        // 2. 本文テキストを描画
         if (menuInput.value)        wrapText(ctx, menuInput.value, boxB.x, boxB.y, boxB.w, boxB.h, offsetB);
         if (leftBottomInput.value)  wrapText(ctx, leftBottomInput.value, boxC.x, boxC.y, boxC.w, boxC.h, offsetC);
         if (rightBottomInput.value) wrapText(ctx, rightBottomInput.value, boxD.x, boxD.y, boxD.w, boxD.h, offsetD);
+
+        // 3. ★今日の日付を取得して描画
+        const today = new Date();
+        // 狭いスペースに収まりやすいよう、年と月日の間で最初から改行をいれておく
+        const dateStr = `${today.getFullYear()}年\n${today.getMonth() + 1}月${today.getDate()}日`;
+        // 第8引数に 'date' を渡して、小さめの文字サイズ＆余白なしで出力
+        wrapText(ctx, dateStr, dateBox.x, dateBox.y, dateBox.w, dateBox.h, 0, 'date');
 
         downloadBtn.style.display = 'block';
     });
