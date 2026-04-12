@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>へいさん便ジェネレーター</title>
+    <title>へいさん便 新聞ジェネレーター</title>
     <style>
         body {
             font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
@@ -107,7 +107,7 @@
 <div class="container">
     <div class="editor-panel">
         <h1>🗞 へいさん便 記事入力</h1>
-        <div id="loadingStatus" class="loading-text">テンプレート画像（bin.png）を読み込み中...</div>
+        <div id="loadingStatus" class="loading-text">テンプレート画像（bin.jpg）を読み込み中...</div>
 
         <div class="form-group">
             <label>(a) 左上の枠：料理の画像</label>
@@ -115,18 +115,18 @@
         </div>
 
         <div class="form-group">
-            <label>(b) 右上の欄：今日の献立</label>
+            <label>(b) 右上の欄：献立</label>
             <textarea id="menuInput" placeholder="今日の献立はこれです..."></textarea>
         </div>
 
         <div class="form-group">
-            <label>(c) 左下の枠：垂れ込み</label>
-            <textarea id="gossipInput" placeholder="ここに垂れ込み情報を入力..."></textarea>
+            <label>(c) 左下の枠：献立野郎の一言</label>
+            <textarea id="leftBottomInput" placeholder="一言物申す..."></textarea>
         </div>
 
         <div class="form-group">
-            <label>(d) 右下の欄：時事ネタ</label>
-            <textarea id="newsInput" placeholder="ここに時事ネタを入力..."></textarea>
+            <label>(d) 右下の枠：垂れ込み</label>
+            <textarea id="rightBottomInput" placeholder="ここに垂れ込み情報を入力..."></textarea>
         </div>
 
         <button id="generateBtn" disabled>画像を生成・出力する</button>
@@ -142,8 +142,8 @@
 <script>
     const foodInput = document.getElementById('foodInput');
     const menuInput = document.getElementById('menuInput');
-    const gossipInput = document.getElementById('gossipInput');
-    const newsInput = document.getElementById('newsInput');
+    const leftBottomInput = document.getElementById('leftBottomInput');
+    const rightBottomInput = document.getElementById('rightBottomInput');
     const generateBtn = document.getElementById('generateBtn');
     const downloadBtn = document.getElementById('downloadBtn');
     const canvas = document.getElementById('canvas');
@@ -153,7 +153,7 @@
     let templateImg = new Image();
     let foodImg = null;
 
-    // 1. テンプレート画像（bin.png）の自動読み込み
+    // 1. テンプレート画像（bin.jpg）の自動読み込み
     templateImg.onload = () => {
         generateBtn.disabled = false;
         loadingStatus.style.display = 'none';
@@ -162,9 +162,9 @@
         ctx.drawImage(templateImg, 0, 0);
     };
     templateImg.onerror = () => {
-        loadingStatus.textContent = 'エラー：同じフォルダに「bin.png」が見つかりません。';
+        loadingStatus.textContent = 'エラー：同じフォルダに「bin.jpg」が見つかりません。';
     };
-    templateImg.src = 'bin.jpg';
+    templateImg.src = 'bin.jpg'; // .pngから.jpgに変更
 
     // 料理画像が選ばれたら保持
     foodInput.addEventListener('change', (e) => {
@@ -179,20 +179,20 @@
         reader.readAsDataURL(file);
     });
 
-    // テキストを自動改行して描画する関数（文字拡大・はみ出し防止強化版）
-    function wrapText(ctx, text, x, y, maxWidth, maxHeight) {
-        // 文字サイズを大きく（前回0.025 → 今回0.038に拡大）
+    // テキストを描画する関数（見出し回避のための startYOffset を追加）
+    function wrapText(ctx, text, x, y, maxWidth, maxHeight, startYOffset = 0) {
         const fontSize = Math.max(Math.floor(canvas.width * 0.038), 18); 
-        const lineHeight = fontSize * 1.4; // 大きな文字でもスッキリ見えるように行間を微調整
+        const lineHeight = fontSize * 1.4; 
         ctx.font = `bold ${fontSize}px 'Sawarabi Mincho', 'Noto Serif JP', serif`;
         ctx.fillStyle = "#1a1a1a";
         ctx.textBaseline = "top";
 
-        // 余白を少し減らし、枠の端まで文字を入れられるようにする
         const padding = fontSize * 0.5;
         const drawX = x + padding;
         const drawMaxWidth = maxWidth - padding * 2;
-        let currentY = y + padding;
+        
+        // startYOffset を加えて、見出しの下から文字が始まるようにする
+        let currentY = y + startYOffset + padding;
 
         const lines = text.split('\n');
         
@@ -204,9 +204,9 @@
                 let testLine = line + chars[j];
                 let metrics = ctx.measureText(testLine);
                 
-                // 横幅を超えたら改行処理
+                // 横幅を超えたら改行
                 if (metrics.width > drawMaxWidth && j > 0) {
-                    // 【重要】縦の限界チェック（描画しようとしている文字が枠の下線を越える場合は即終了）
+                    // 縦の限界チェック
                     if (currentY - y + fontSize > maxHeight - padding) return;
                     
                     ctx.fillText(line, drawX, currentY);
@@ -216,7 +216,6 @@
                     line = testLine;
                 }
             }
-            // 各行の最後の描画前にも縦の限界チェック
             if (currentY - y + fontSize > maxHeight - padding) return;
             
             ctx.fillText(line, drawX, currentY);
@@ -224,20 +223,24 @@
         }
     }
 
-    // 「画像を生成・出力する」ボタンの処理
+    // 画像生成処理
     generateBtn.addEventListener('click', () => {
-        // キャンバスのリセット
         canvas.width = templateImg.width;
         canvas.height = templateImg.height;
         const W = canvas.width;
         const H = canvas.height;
         ctx.drawImage(templateImg, 0, 0);
 
-        // 枠の座標定義（黒枠の内側にぴったり収まる位置）
+        // 枠の座標（黒枠の内側にぴったり収まる位置）
         const boxA = { x: W * 0.052, y: H * 0.179, w: W * 0.423, h: H * 0.338 }; 
         const boxB = { x: W * 0.489, y: H * 0.179, w: W * 0.290, h: H * 0.338 }; 
         const boxC = { x: W * 0.052, y: H * 0.530, w: W * 0.306, h: H * 0.424 }; 
         const boxD = { x: W * 0.393, y: H * 0.530, w: W * 0.559, h: H * 0.424 }; 
+
+        // 見出しを避けるための縦の余白（枠の高さに対する割合で設定）
+        const offsetB = boxB.h * 0.18; // 「献立」見出し用
+        const offsetC = boxC.h * 0.12; // 「献立野郎の一言」見出し用
+        const offsetD = boxD.h * 0.15; // 「垂れ込み」見出し用
 
         // 料理の画像を描画
         if (foodImg) {
@@ -265,12 +268,11 @@
             ctx.restore();
         }
 
-        // 各テキストを描画
-        if (menuInput.value)   wrapText(ctx, menuInput.value, boxB.x, boxB.y, boxB.w, boxB.h);
-        if (gossipInput.value) wrapText(ctx, gossipInput.value, boxC.x, boxC.y, boxC.w, boxC.h);
-        if (newsInput.value)   wrapText(ctx, newsInput.value, boxD.x, boxD.y, boxD.w, boxD.h);
+        // 各テキストを描画（第7引数にオフセットを渡す）
+        if (menuInput.value)        wrapText(ctx, menuInput.value, boxB.x, boxB.y, boxB.w, boxB.h, offsetB);
+        if (leftBottomInput.value)  wrapText(ctx, leftBottomInput.value, boxC.x, boxC.y, boxC.w, boxC.h, offsetC);
+        if (rightBottomInput.value) wrapText(ctx, rightBottomInput.value, boxD.x, boxD.y, boxD.w, boxD.h, offsetD);
 
-        // ダウンロードボタンを表示
         downloadBtn.style.display = 'block';
     });
 
